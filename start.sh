@@ -31,6 +31,11 @@ trap cleanup EXIT INT TERM
 echo "🚀 Starting Backend..."
 cd backend
 
+# Source profile to load environment variables (like ANTHROPIC_API_KEY)
+if [ -f "$HOME/.profile" ]; then
+    source "$HOME/.profile"
+fi
+
 if [ ! -d "venv" ]; then
     echo "Creating Python virtual environment..."
     python3 -m venv venv
