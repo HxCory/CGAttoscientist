@@ -5,10 +5,13 @@ An AI-powered research assistant that uses **Multimodal Retrieval Augmented Gene
 ## 🌟 Features
 
 - **📄 PDF Processing**: Converts thesis pages to images for multimodal understanding
-- **🔍 Semantic Search**: Vector-based retrieval of relevant sections using embeddings
+- **🔍 Semantic Search**: High-quality embeddings with intelligent chunk retrieval
+- **📚 Table of Contents Detection**: Automatically finds and includes ToC for document navigation
 - **👁️ Vision-Powered AI**: Claude "sees" your thesis pages - equations, figures, tables, everything
 - **💬 Interactive Chat**: Natural conversation about your research
-- **📚 Source Citations**: See which pages were used to answer each question
+- **💾 Document Persistence**: Upload once, embeddings persist forever - no re-processing needed
+- **🔄 Smart Re-processing**: Detects missing embeddings and offers one-click regeneration
+- **📑 Source Citations**: See which pages were used to answer each question
 - **⚡ Fast & Local**: ChromaDB for efficient local vector storage
 
 ## 🏗️ Architecture
@@ -135,10 +138,10 @@ PAGE_IMAGES_DIR=./page_images
 UPLOADS_DIR=./uploads
 
 # RAG settings
-EMBEDDING_MODEL=all-MiniLM-L6-v2  # Fast, good quality embeddings
-TOP_K_RESULTS=3                    # Number of pages to retrieve
-CHUNK_SIZE=1000                    # Characters per chunk
-CHUNK_OVERLAP=200                  # Overlap between chunks
+EMBEDDING_MODEL=all-mpnet-base-v2  # High-quality embeddings (default)
+TOP_K_RESULTS=15                   # Number of chunks to retrieve
+CHUNK_SIZE=600                     # Characters per chunk (smaller = more granular)
+CHUNK_OVERLAP=150                  # Overlap between chunks
 
 # Server
 HOST=0.0.0.0
@@ -230,8 +233,8 @@ Delete a document and all its data
 ### Change Embedding Model
 
 In `.env`, set `EMBEDDING_MODEL` to any sentence-transformers model:
-- `all-MiniLM-L6-v2` (default, fast, good quality)
-- `all-mpnet-base-v2` (slower, better quality)
+- `all-mpnet-base-v2` (default, high quality, 768 dimensions)
+- `all-MiniLM-L6-v2` (faster, good quality, 384 dimensions)
 - `multi-qa-mpnet-base-dot-v1` (optimized for Q&A)
 
 ### Adjust Retrieval

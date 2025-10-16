@@ -75,13 +75,25 @@ class DocumentProcessor:
 
         print(f"✓ Successfully processed {num_pages} pages")
 
+        # Try to detect table of contents pages
+        toc_pages = self._detect_toc_pages(pages_data)
+
+        # Detect page numbering offset (thesis page 1 vs PDF page number)
+        page_offset = self._detect_page_offset(pages_data)
+
         return {
             "pages": pages_data,
-            "metadata": {"num_pages": num_pages, "document_id": document_id, "pdf_path": pdf_path},
+            "metadata": {
+                "num_pages": num_pages,
+                "document_id": document_id,
+                "pdf_path": pdf_path,
+                "toc_pages": toc_pages,
+                "page_offset": page_offset,
+            },
         }
 
     def chunk_text(
-        self, text: str, page_num: int, chunk_size: int = 1000, chunk_overlap: int = 200
+        self, text: str, page_num: int, chunk_size: int = 600, chunk_overlap: int = 150
     ) -> list[dict[str, any]]:
         """
         Split text into overlapping chunks for better retrieval
@@ -89,8 +101,8 @@ class DocumentProcessor:
         Args:
             text: Text to chunk
             page_num: Page number this text came from
-            chunk_size: Target size of each chunk (characters)
-            chunk_overlap: Overlap between chunks
+            chunk_size: Target size of each chunk in characters (default 600 for finer granularity)
+            chunk_overlap: Overlap between chunks in characters (default 150 for context continuity)
 
         Returns:
             List of dicts with {text, page_num, chunk_index}
@@ -137,3 +149,85 @@ class DocumentProcessor:
         """Load page image as bytes"""
         with open(image_path, "rb") as f:
             return f.read()
+
+    def _detect_toc_pages(self, pages_data: list[dict]) -> list[int]:
+        """
+        Detect which pages contain the table of contents
+
+        Args:
+            pages_data: List of page data dicts with text
+
+        Returns:
+            List of page numbers that appear to be ToC pages
+        """
+        toc_pages = []
+        toc_keywords = [
+            "table of contents",
+            "contents",
+            "chapter 1",
+            "chapter 2",
+            "list of figures",
+            "list of tables",
+        ]
+
+        for page in pages_data:
+            text_lower = page["text"].lower()
+
+            # Check if page contains ToC keywords and has dots/page numbers pattern
+            has_toc_keyword = any(keyword in text_lower for keyword in toc_keywords)
+            has_dotted_lines = "...." in text_lower or "…" in text_lower
+            has_many_numbers = sum(c.isdigit() for c in text_lower) > 20
+
+            # Look for chapter/section listing pattern
+            has_chapter_pattern = "chapter" in text_lower and has_many_numbers
+
+            if (has_toc_keyword and (has_dotted_lines or has_many_numbers)) or has_chapter_pattern:
+                toc_pages.append(page["page_num"])
+
+        # Usually ToC is in first 15 pages and consecutive
+        toc_pages = [p for p in toc_pages if p <= 15]
+
+        return sorted(toc_pages)
+
+    def _detect_page_offset(self, pages_data: list[dict]) -> int:
+        """
+        Detect offset between thesis page numbers and PDF page numbers.
+
+        For example, if "Chapter 1, page 1" actually starts at PDF page 23,
+        the offset is 22 (PDF page = thesis page + 22).
+
+        Args:
+            pages_data: List of page data dicts with text
+
+        Returns:
+            Page offset (0 if cannot detect)
+        """
+        import re
+
+        # Look for "Chapter 1" or "1.1" header on a page with low PDF page number
+        for page in pages_data:
+            if page["page_num"] > 35:  # Don't search too far
+                continue
+
+            text = page["text"]
+
+            # Look for chapter 1 heading patterns
+            patterns = [
+                r"^\s*Chapter\s+1[:\s]",
+                r"^\s*1\s+Introduction",
+                r"^\s*1\.1\s+",
+            ]
+
+            for pattern in patterns:
+                if re.search(pattern, text, re.MULTILINE | re.IGNORECASE):
+                    # Found Chapter 1 at this PDF page
+                    # Thesis "page 1" = this PDF page
+                    offset = page["page_num"] - 1
+                    print(
+                        f"📖 Detected page offset: thesis page 1 = PDF page {page['page_num']} (offset: +{offset})"
+                    )
+                    return offset
+
+        # Default: no offset detected
+        print("📖 No page offset detected, assuming thesis pages = PDF pages")
+        return 0

@@ -34,6 +34,8 @@ class DocumentManager:
         num_chunks: int,
         pdf_path: str,
         image_dir: str,
+        toc_pages: list[int] | None = None,
+        page_offset: int = 0,
     ):
         """Register a processed document"""
         self.metadata[document_id] = {
@@ -43,6 +45,8 @@ class DocumentManager:
             "num_chunks": num_chunks,
             "pdf_path": pdf_path,
             "image_dir": image_dir,
+            "toc_pages": toc_pages or [],
+            "page_offset": page_offset,
             "processed_at": datetime.now().isoformat(),
             "last_accessed": datetime.now().isoformat(),
         }

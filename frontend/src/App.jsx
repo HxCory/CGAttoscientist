@@ -20,6 +20,7 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [reprocessing, setReprocessing] = useState(false)
+  const [loadingStats, setLoadingStats] = useState(true)
   const [stats, setStats] = useState(null)
   const [documents, setDocuments] = useState([])
   const [documentId, setDocumentId] = useState(null)
@@ -42,6 +43,7 @@ function App() {
 
   const fetchStats = async () => {
     try {
+      setLoadingStats(true)
       const response = await axios.get(`${API_BASE}/stats`)
       setStats(response.data)
 
@@ -57,6 +59,8 @@ function App() {
       }
     } catch (error) {
       console.error('Error fetching stats:', error)
+    } finally {
+      setLoadingStats(false)
     }
   }
 
@@ -233,8 +237,18 @@ function App() {
 
           {/* Document Selector & Stats Bar */}
           <div className="mt-4 flex items-center justify-between gap-4">
+            {/* Document Selector - Loading State */}
+            {loadingStats && (
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 text-sm text-slate-600">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary-600" />
+                  <span className="animate-pulse">Looking for past documents...</span>
+                </div>
+              </div>
+            )}
+
             {/* Document Selector */}
-            {documents.length > 0 && (
+            {!loadingStats && documents.length > 0 && (
               <div className="flex items-center gap-2">
                 <label htmlFor="doc-select" className="text-sm font-medium text-slate-700">
                   Active Document:
@@ -258,12 +272,20 @@ function App() {
                     </option>
                   ))}
                 </select>
-                {selectedDoc && selectedDoc.needs_reprocessing && (
+                {selectedDoc && (
                   <button
                     onClick={handleReprocess}
                     disabled={reprocessing}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 text-sm"
-                    title="Embeddings missing - click to reprocess"
+                    className={`flex items-center gap-1 px-3 py-1.5 text-white rounded-lg transition-colors disabled:opacity-50 text-sm ${
+                      selectedDoc.needs_reprocessing
+                        ? 'bg-yellow-600 hover:bg-yellow-700'
+                        : 'bg-blue-600 hover:bg-blue-700'
+                    }`}
+                    title={
+                      selectedDoc.needs_reprocessing
+                        ? 'Embeddings missing - click to reprocess'
+                        : 'Regenerate embeddings (use after changing embedding model)'
+                    }
                   >
                     {reprocessing ? (
                       <>
@@ -273,7 +295,7 @@ function App() {
                     ) : (
                       <>
                         <RefreshCw className="h-3 w-3" />
-                        Re-process
+                        {selectedDoc.needs_reprocessing ? 'Re-process' : 'Reload'}
                       </>
                     )}
                   </button>

@@ -13,7 +13,7 @@ class VectorStore:
     def __init__(
         self,
         persist_directory: str,
-        embedding_model: str = "all-MiniLM-L6-v2",
+        embedding_model: str = "all-mpnet-base-v2",
         collection_name: str = "thesis_chunks",
     ):
         """
@@ -22,6 +22,8 @@ class VectorStore:
         Args:
             persist_directory: Where to persist ChromaDB data
             embedding_model: Sentence transformer model name
+                - all-mpnet-base-v2: Better quality, 768 dims (default)
+                - all-MiniLM-L6-v2: Faster, 384 dims
             collection_name: Name for the ChromaDB collection
         """
         print(f"Initializing vector store with model: {embedding_model}")
@@ -150,6 +152,32 @@ class VectorStore:
         if results["ids"]:
             self.collection.delete(ids=results["ids"])
             print(f"✓ Removed {len(results['ids'])} chunks for document {document_id}")
+
+    def reset_collection(self):
+        """Delete and recreate the collection (use when changing embedding models)"""
+        try:
+            self.client.delete_collection(name=self.collection.name)
+            print(f"✓ Deleted old collection: {self.collection.name}")
+        except Exception as e:
+            print(f"Note: Could not delete collection (may not exist): {e}")
+
+        # Recreate collection
+        self.collection = self.client.get_or_create_collection(
+            name=self.collection.name,
+            metadata={"description": "PhD thesis document chunks with page references"},
+        )
+        print(f"✓ Created new collection with {self.embedding_dim} dimensions")
+
+    def get_collection_dimension(self) -> int | None:
+        """Get the actual dimension stored in the collection (not the model dimension)"""
+        try:
+            # Try to get one item to check its dimension
+            results = self.collection.get(limit=1, include=["embeddings"])
+            if results and results["embeddings"] and len(results["embeddings"]) > 0:
+                return len(results["embeddings"][0])
+        except Exception:
+            pass
+        return None
 
     def get_collection_stats(self) -> dict[str, any]:
         """Get statistics about the collection"""

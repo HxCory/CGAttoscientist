@@ -31,7 +31,7 @@ UPLOADS_DIR = os.getenv("UPLOADS_DIR", "./uploads")
 TOP_K_RESULTS = int(os.getenv("TOP_K_RESULTS", "3"))
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "1000"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "200"))
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-mpnet-base-v2")
 
 # Create directories
 Path(UPLOADS_DIR).mkdir(parents=True, exist_ok=True)
@@ -208,6 +208,15 @@ async def reprocess_document(document_id: str):
         # Clear old embeddings if they exist
         vector_store.clear_document(document_id)
 
+        # If collection is now empty, reset it to ensure correct dimensions
+        # This handles cases where embedding model was changed
+        stats = vector_store.get_collection_stats()
+        if stats["total_chunks"] == 0:
+            print(
+                f"🔄 Collection empty - resetting to ensure correct embedding dimensions ({vector_store.embedding_dim}D)..."
+            )
+            vector_store.reset_collection()
+
         # Process PDF (images should already exist, but we'll regenerate if needed)
         result = document_processor.process_pdf(pdf_path=str(pdf_path), document_id=document_id)
 
@@ -237,6 +246,8 @@ async def reprocess_document(document_id: str):
             num_chunks=len(all_chunks),
             pdf_path=str(pdf_path),
             image_dir=str(Path(PAGE_IMAGES_DIR) / document_id),
+            toc_pages=result["metadata"].get("toc_pages", []),
+            page_offset=result["metadata"].get("page_offset", 0),
         )
 
         return {
@@ -322,6 +333,11 @@ async def upload_pdf(
         vector_store.add_chunks(chunks=all_chunks, document_id=document_id)
 
         # Save document metadata
+        toc_pages = result["metadata"].get("toc_pages", [])
+        page_offset = result["metadata"].get("page_offset", 0)
+        if toc_pages:
+            print(f"📚 Detected table of contents on pages: {toc_pages}")
+
         document_manager.add_document(
             document_id=document_id,
             filename=file.filename,
@@ -329,6 +345,8 @@ async def upload_pdf(
             num_chunks=len(all_chunks),
             pdf_path=str(pdf_path),
             image_dir=str(Path(PAGE_IMAGES_DIR) / document_id),
+            toc_pages=toc_pages,
+            page_offset=page_offset,
         )
 
         stats = vector_store.get_collection_stats()
@@ -359,6 +377,15 @@ async def ask_question(request: QuestionRequest):
 
     top_k = request.top_k or TOP_K_RESULTS
 
+    # Get ToC pages and page offset if document_id is provided
+    toc_pages = []
+    page_offset = 0
+    if request.document_id:
+        doc_meta = document_manager.get_document(request.document_id)
+        if doc_meta:
+            toc_pages = doc_meta.get("toc_pages", [])
+            page_offset = doc_meta.get("page_offset", 0)
+
     try:
         if request.stream:
             # Streaming response
@@ -368,6 +395,8 @@ async def ask_question(request: QuestionRequest):
                     document_id=request.document_id,
                     top_k=top_k,
                     include_images=request.include_images,
+                    toc_pages=toc_pages,
+                    page_offset=page_offset,
                 ):
                     # Send as Server-Sent Events format
                     yield f"data: {json.dumps(chunk)}\n\n"
@@ -380,6 +409,8 @@ async def ask_question(request: QuestionRequest):
                 document_id=request.document_id,
                 top_k=top_k,
                 include_images=request.include_images,
+                toc_pages=toc_pages,
+                page_offset=page_offset,
             )
             return result
 
