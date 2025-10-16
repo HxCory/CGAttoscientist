@@ -37,7 +37,7 @@ function App() {
     }
   }
 
-  const handleFileUpload = async (event) => {
+  const handleFileUpload = async event => {
     const file = event.target.files[0]
     if (!file) return
 
@@ -47,24 +47,30 @@ function App() {
 
     try {
       const response = await axios.post(`${API_BASE}/upload`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
+        headers: { 'Content-Type': 'multipart/form-data' },
       })
 
       setDocumentId(response.data.document_id)
-      
+
       // Add system message
-      setMessages(prev => [...prev, {
-        type: 'system',
-        content: `✓ Successfully processed thesis: ${response.data.pages_processed} pages, ${response.data.chunks_created} chunks created.`
-      }])
+      setMessages(prev => [
+        ...prev,
+        {
+          type: 'system',
+          content: `✓ Successfully processed thesis: ${response.data.pages_processed} pages, ${response.data.chunks_created} chunks created.`,
+        },
+      ])
 
       fetchStats()
     } catch (error) {
       console.error('Error uploading file:', error)
-      setMessages(prev => [...prev, {
-        type: 'error',
-        content: `Failed to upload file: ${error.response?.data?.detail || error.message}`
-      }])
+      setMessages(prev => [
+        ...prev,
+        {
+          type: 'error',
+          content: `Failed to upload file: ${error.response?.data?.detail || error.message}`,
+        },
+      ])
     } finally {
       setUploading(false)
       if (fileInputRef.current) {
@@ -73,7 +79,7 @@ function App() {
     }
   }
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async e => {
     e.preventDefault()
     if (!input.trim() || loading) return
 
@@ -82,10 +88,13 @@ function App() {
     setLoading(true)
 
     // Add user message
-    setMessages(prev => [...prev, {
-      type: 'user',
-      content: question
-    }])
+    setMessages(prev => [
+      ...prev,
+      {
+        type: 'user',
+        content: question,
+      },
+    ])
 
     try {
       // For now, use non-streaming
@@ -94,23 +103,28 @@ function App() {
         document_id: documentId,
         top_k: 3,
         include_images: true,
-        stream: false
+        stream: false,
       })
 
       // Add assistant message with sources
-      setMessages(prev => [...prev, {
-        type: 'assistant',
-        content: response.data.answer,
-        sources: response.data.sources,
-        metadata: response.data.metadata
-      }])
-
+      setMessages(prev => [
+        ...prev,
+        {
+          type: 'assistant',
+          content: response.data.answer,
+          sources: response.data.sources,
+          metadata: response.data.metadata,
+        },
+      ])
     } catch (error) {
       console.error('Error asking question:', error)
-      setMessages(prev => [...prev, {
-        type: 'error',
-        content: `Error: ${error.response?.data?.detail || error.message}`
-      }])
+      setMessages(prev => [
+        ...prev,
+        {
+          type: 'error',
+          content: `Error: ${error.response?.data?.detail || error.message}`,
+        },
+      ])
     } finally {
       setLoading(false)
     }
@@ -127,9 +141,7 @@ function App() {
                 <BookOpen className="h-6 w-6 text-primary-600" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-slate-900">
-                  PhD Thesis Research Assistant
-                </h1>
+                <h1 className="text-2xl font-bold text-slate-900">PhD Thesis Research Assistant</h1>
                 <p className="text-sm text-slate-600">
                   Attosecond Streaking & Time Delays in Photoionization
                 </p>
@@ -184,7 +196,6 @@ function App() {
       {/* Chat Container */}
       <main className="max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 flex flex-col h-[calc(100vh-250px)]">
-          
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             {messages.length === 0 && (
@@ -222,7 +233,7 @@ function App() {
               <input
                 type="text"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={e => setInput(e.target.value)}
                 placeholder="Ask a question about your research..."
                 disabled={loading}
                 className="flex-1 px-4 py-3 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
@@ -278,19 +289,15 @@ function Message({ message }) {
     return (
       <div className="flex flex-col gap-2 message-enter">
         <div className="max-w-[85%] px-4 py-3 bg-slate-100 text-slate-900 rounded-2xl rounded-tl-sm">
-          <div className="prose prose-sm max-w-none">
-            {message.content}
-          </div>
+          <div className="prose prose-sm max-w-none">{message.content}</div>
         </div>
-        
+
         {/* Sources */}
         {message.sources && message.sources.pages && message.sources.pages.length > 0 && (
           <div className="max-w-[85%] px-4 py-2 bg-slate-50 rounded-lg border border-slate-200">
-            <div className="text-xs font-semibold text-slate-600 mb-1">
-              📖 Sources:
-            </div>
+            <div className="text-xs font-semibold text-slate-600 mb-1">📖 Sources:</div>
             <div className="flex flex-wrap gap-2">
-              {message.sources.pages.map((page) => (
+              {message.sources.pages.map(page => (
                 <span
                   key={page}
                   className="px-2 py-1 bg-white text-slate-700 rounded text-xs border border-slate-200"
@@ -301,7 +308,8 @@ function Message({ message }) {
             </div>
             {message.metadata && message.metadata.tokens_used && (
               <div className="text-xs text-slate-500 mt-2">
-                Tokens: {message.metadata.tokens_used.input} in / {message.metadata.tokens_used.output} out
+                Tokens: {message.metadata.tokens_used.input} in /{' '}
+                {message.metadata.tokens_used.output} out
               </div>
             )}
           </div>
@@ -314,4 +322,3 @@ function Message({ message }) {
 }
 
 export default App
-

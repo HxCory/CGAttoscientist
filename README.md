@@ -41,10 +41,10 @@ An AI-powered research assistant that uses **Multimodal Retrieval Augmented Gene
   ```bash
   # macOS
   brew install poppler
-  
+
   # Ubuntu/Debian
   sudo apt-get install poppler-utils
-  
+
   # Windows
   # Download from: https://github.com/oschwartz10612/poppler-windows/releases/
   ```
@@ -323,4 +323,3 @@ Built with:
 ---
 
 **Happy researching! 🔬✨**
-
