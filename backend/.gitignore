@@ -11,3 +11,4 @@ uploads/
 page_images/
 *.pdf
 .DS_Store
+.ruff_cache/

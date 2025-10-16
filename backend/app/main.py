@@ -1,12 +1,12 @@
 """
 FastAPI Backend for PhD Thesis RAG Assistant
 """
+
 import json
 import os
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from app.document_manager import DocumentManager
 from app.document_processor import DocumentProcessor
 from app.rag_system import MultimodalRAG
 from app.vector_store import VectorStore
@@ -38,15 +39,16 @@ Path(PAGE_IMAGES_DIR).mkdir(parents=True, exist_ok=True)
 Path(CHROMA_PERSIST_DIRECTORY).mkdir(parents=True, exist_ok=True)
 
 # Global instances (initialized in lifespan)
-document_processor: Optional[DocumentProcessor] = None
-vector_store: Optional[VectorStore] = None
-rag_system: Optional[MultimodalRAG] = None
+document_processor: DocumentProcessor | None = None
+document_manager: DocumentManager | None = None
+vector_store: VectorStore | None = None
+rag_system: MultimodalRAG | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize and cleanup resources"""
-    global document_processor, vector_store, rag_system
+    global document_processor, document_manager, vector_store, rag_system
 
     print("=" * 60)
     print("🚀 Starting PhD Thesis RAG Assistant")
@@ -56,12 +58,18 @@ async def lifespan(app: FastAPI):
     print("\n1. Initializing Document Processor...")
     document_processor = DocumentProcessor(page_images_dir=PAGE_IMAGES_DIR)
 
-    print("\n2. Initializing Vector Store...")
+    print("\n2. Initializing Document Manager...")
+    document_manager = DocumentManager(
+        metadata_file=f"{CHROMA_PERSIST_DIRECTORY}/document_metadata.json"
+    )
+    print(f"   Found {len(document_manager.list_documents())} existing documents")
+
+    print("\n3. Initializing Vector Store...")
     vector_store = VectorStore(
         persist_directory=CHROMA_PERSIST_DIRECTORY, embedding_model=EMBEDDING_MODEL
     )
 
-    print("\n3. Initializing RAG System...")
+    print("\n4. Initializing RAG System...")
     if not ANTHROPIC_API_KEY:
         print("⚠️  WARNING: ANTHROPIC_API_KEY not set!")
 
@@ -102,10 +110,10 @@ app.add_middleware(
 # Request/Response Models
 class QuestionRequest(BaseModel):
     question: str
-    document_id: Optional[str] = None
-    top_k: Optional[int] = None
-    include_images: Optional[bool] = True
-    stream: Optional[bool] = False
+    document_id: str | None = None
+    top_k: int | None = None
+    include_images: bool | None = True
+    stream: bool | None = False
 
 
 class QuestionResponse(BaseModel):
@@ -127,8 +135,20 @@ async def root():
 async def get_stats():
     """Get system statistics"""
     stats = vector_store.get_collection_stats()
+
+    # Get documents with embedding status
+    docs = document_manager.list_documents()
+    for doc in docs:
+        actual_chunks = document_manager.get_document_chunk_count(doc["document_id"], vector_store)
+        doc["actual_chunks"] = actual_chunks
+        doc["needs_reprocessing"] = actual_chunks == 0 and doc["num_chunks"] > 0
+
     return {
         "vector_store": stats,
+        "documents": {
+            "total": len(docs),
+            "list": docs,
+        },
         "config": {
             "embedding_model": EMBEDDING_MODEL,
             "chunk_size": CHUNK_SIZE,
@@ -138,10 +158,104 @@ async def get_stats():
     }
 
 
+@app.get("/documents")
+async def list_documents():
+    """List all processed documents with embedding status"""
+    docs = document_manager.list_documents()
+
+    # Add embedding status for each document
+    for doc in docs:
+        actual_chunks = document_manager.get_document_chunk_count(doc["document_id"], vector_store)
+        doc["actual_chunks"] = actual_chunks
+        doc["needs_reprocessing"] = actual_chunks == 0 and doc["num_chunks"] > 0
+
+    return {"documents": docs, "total": len(docs)}
+
+
+@app.get("/documents/{document_id}")
+async def get_document(document_id: str):
+    """Get metadata for a specific document with embedding status"""
+    doc = document_manager.get_document(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+
+    # Add actual chunk count from vector store
+    actual_chunks = document_manager.get_document_chunk_count(document_id, vector_store)
+    doc["actual_chunks"] = actual_chunks
+    doc["needs_reprocessing"] = actual_chunks == 0 and doc["num_chunks"] > 0
+
+    return doc
+
+
+@app.post("/documents/{document_id}/reprocess")
+async def reprocess_document(document_id: str):
+    """Reprocess an existing document (re-create embeddings)"""
+    # Get document metadata
+    doc = document_manager.get_document(document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail=f"Document {document_id} not found")
+
+    pdf_path = Path(doc["pdf_path"])
+    if not pdf_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"PDF file not found at {pdf_path}. Please re-upload the document.",
+        )
+
+    print(f"\n🔄 Reprocessing document: {document_id}")
+
+    try:
+        # Clear old embeddings if they exist
+        vector_store.clear_document(document_id)
+
+        # Process PDF (images should already exist, but we'll regenerate if needed)
+        result = document_processor.process_pdf(pdf_path=str(pdf_path), document_id=document_id)
+
+        # Create chunks
+        all_chunks = []
+        for page_data in result["pages"]:
+            chunks = document_processor.chunk_text(
+                text=page_data["text"],
+                page_num=page_data["page_num"],
+                chunk_size=CHUNK_SIZE,
+                chunk_overlap=CHUNK_OVERLAP,
+            )
+            for chunk in chunks:
+                chunk["image_path"] = page_data["image_path"]
+            all_chunks.extend(chunks)
+
+        print(f"\n✓ Created {len(all_chunks)} text chunks")
+
+        # Add to vector store
+        vector_store.add_chunks(chunks=all_chunks, document_id=document_id)
+
+        # Update metadata
+        document_manager.add_document(
+            document_id=document_id,
+            filename=doc["filename"],
+            num_pages=result["metadata"]["num_pages"],
+            num_chunks=len(all_chunks),
+            pdf_path=str(pdf_path),
+            image_dir=str(Path(PAGE_IMAGES_DIR) / document_id),
+        )
+
+        return {
+            "status": "success",
+            "message": f"Successfully reprocessed {document_id}",
+            "document_id": document_id,
+            "chunks_created": len(all_chunks),
+        }
+
+    except Exception as e:
+        print(f"❌ Error reprocessing: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error reprocessing: {str(e)}")
+
+
 @app.post("/upload")
 async def upload_pdf(
     file: UploadFile = File(...),
-    document_id: Optional[str] = Query(None, description="Optional document ID"),
+    document_id: str | None = Query(None, description="Optional document ID"),
+    force_reprocess: bool = Query(False, description="Force reprocessing even if document exists"),
 ):
     """
     Upload and process a PDF document
@@ -159,6 +273,21 @@ async def upload_pdf(
     # Generate document ID if not provided
     if not document_id:
         document_id = Path(file.filename).stem
+
+    # Check if document already exists
+    if not force_reprocess and document_manager.document_exists(document_id):
+        doc = document_manager.get_document(document_id)
+        print(
+            f"\n📄 Document {document_id} already processed (use force_reprocess=true to override)"
+        )
+        return {
+            "status": "exists",
+            "message": f"Document {document_id} already exists",
+            "document_id": document_id,
+            "pages_processed": doc["num_pages"],
+            "chunks_created": doc["num_chunks"],
+            "total_chunks_in_db": vector_store.get_collection_stats()["total_chunks"],
+        }
 
     print(f"\n📄 Processing upload: {file.filename} (ID: {document_id})")
 
@@ -191,6 +320,16 @@ async def upload_pdf(
 
         # Add to vector store
         vector_store.add_chunks(chunks=all_chunks, document_id=document_id)
+
+        # Save document metadata
+        document_manager.add_document(
+            document_id=document_id,
+            filename=file.filename,
+            num_pages=result["metadata"]["num_pages"],
+            num_chunks=len(all_chunks),
+            pdf_path=str(pdf_path),
+            image_dir=str(Path(PAGE_IMAGES_DIR) / document_id),
+        )
 
         stats = vector_store.get_collection_stats()
 
@@ -253,6 +392,9 @@ async def ask_question(request: QuestionRequest):
 async def delete_document(document_id: str):
     """Delete a document and all its data"""
     try:
+        # Remove from document manager
+        document_manager.delete_document(document_id)
+
         # Remove from vector store
         vector_store.clear_document(document_id)
 

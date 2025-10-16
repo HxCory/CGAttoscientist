@@ -2,6 +2,7 @@
 Document Processor for Multimodal RAG
 Converts PDF pages to images and extracts text for semantic search
 """
+
 import base64
 from pathlib import Path
 

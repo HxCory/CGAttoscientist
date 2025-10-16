@@ -1,8 +1,8 @@
 """
 Multimodal RAG System - Retrieval Augmented Generation with Vision
 """
+
 from collections.abc import AsyncIterator
-from typing import Optional
 
 import anthropic
 
@@ -31,7 +31,7 @@ When you see equations or figures in the images, describe them clearly and relat
         anthropic_api_key: str,
         vector_store: VectorStore,
         document_processor: DocumentProcessor,
-        base_url: Optional[str] = None,
+        base_url: str | None = None,
     ):
         """
         Initialize RAG system
@@ -53,7 +53,7 @@ When you see equations or figures in the images, describe them clearly and relat
         self.doc_processor = document_processor
 
     def retrieve_context(
-        self, query: str, top_k: int = 5, document_id: Optional[str] = None
+        self, query: str, top_k: int = 5, document_id: str | None = None
     ) -> dict[str, any]:
         """
         Retrieve relevant context for a query
@@ -155,7 +155,7 @@ When you see equations or figures in the images, describe them clearly and relat
     def ask(
         self,
         question: str,
-        document_id: Optional[str] = None,
+        document_id: str | None = None,
         top_k: int = 3,
         model: str = "claude-3-5-sonnet-20241022",
         max_tokens: int = 4096,
@@ -210,7 +210,7 @@ When you see equations or figures in the images, describe them clearly and relat
     async def ask_streaming(
         self,
         question: str,
-        document_id: Optional[str] = None,
+        document_id: str | None = None,
         top_k: int = 3,
         model: str = "claude-3-5-sonnet-20241022",
         max_tokens: int = 4096,

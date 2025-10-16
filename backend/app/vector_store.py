@@ -1,7 +1,6 @@
 """
 Vector Store for semantic search using ChromaDB
 """
-from typing import Optional
 
 import chromadb
 from chromadb.config import Settings
@@ -31,9 +30,9 @@ class VectorStore:
         self.embedding_model = SentenceTransformer(embedding_model)
         self.embedding_dim = self.embedding_model.get_sentence_embedding_dimension()
 
-        # Initialize ChromaDB
-        self.client = chromadb.Client(
-            Settings(persist_directory=persist_directory, anonymized_telemetry=False)
+        # Initialize ChromaDB with persistence
+        self.client = chromadb.PersistentClient(
+            path=persist_directory, settings=Settings(anonymized_telemetry=False)
         )
 
         # Get or create collection
@@ -101,7 +100,7 @@ class VectorStore:
         print(f"✓ Successfully added {len(chunks)} chunks")
 
     def search(
-        self, query: str, top_k: int = 5, document_id: Optional[str] = None
+        self, query: str, top_k: int = 5, document_id: str | None = None
     ) -> list[dict[str, any]]:
         """
         Search for relevant chunks using semantic similarity

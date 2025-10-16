@@ -1,5 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
-import { Upload, Send, Loader2, BookOpen, Sparkles, FileText } from 'lucide-react'
+import {
+  Upload,
+  Send,
+  Loader2,
+  BookOpen,
+  Sparkles,
+  FileText,
+  RefreshCw,
+  AlertCircle,
+} from 'lucide-react'
 import axios from 'axios'
 import './App.css'
 
@@ -10,8 +19,11 @@ function App() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [reprocessing, setReprocessing] = useState(false)
   const [stats, setStats] = useState(null)
+  const [documents, setDocuments] = useState([])
   const [documentId, setDocumentId] = useState(null)
+  const [selectedDoc, setSelectedDoc] = useState(null)
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
 
@@ -32,6 +44,17 @@ function App() {
     try {
       const response = await axios.get(`${API_BASE}/stats`)
       setStats(response.data)
+
+      // Update documents list from stats
+      if (response.data.documents && response.data.documents.list) {
+        setDocuments(response.data.documents.list)
+
+        // Update selected doc info if a document is selected
+        if (documentId) {
+          const doc = response.data.documents.list.find(d => d.document_id === documentId)
+          setSelectedDoc(doc || null)
+        }
+      }
     } catch (error) {
       console.error('Error fetching stats:', error)
     }
@@ -76,6 +99,37 @@ function App() {
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
+    }
+  }
+
+  const handleReprocess = async () => {
+    if (!documentId || reprocessing) return
+
+    setReprocessing(true)
+
+    try {
+      const response = await axios.post(`${API_BASE}/documents/${documentId}/reprocess`)
+
+      setMessages(prev => [
+        ...prev,
+        {
+          type: 'system',
+          content: `✓ Successfully reprocessed: ${response.data.chunks_created} chunks created.`,
+        },
+      ])
+
+      fetchStats()
+    } catch (error) {
+      console.error('Error reprocessing:', error)
+      setMessages(prev => [
+        ...prev,
+        {
+          type: 'error',
+          content: `Failed to reprocess: ${error.response?.data?.detail || error.message}`,
+        },
+      ])
+    } finally {
+      setReprocessing(false)
     }
   }
 
@@ -177,19 +231,70 @@ function App() {
             </div>
           </div>
 
-          {/* Stats Bar */}
-          {stats && (
-            <div className="mt-4 flex items-center gap-4 text-sm text-slate-600">
-              <div className="flex items-center gap-1">
-                <FileText className="h-4 w-4" />
-                <span>{stats.vector_store.total_chunks} chunks indexed</span>
+          {/* Document Selector & Stats Bar */}
+          <div className="mt-4 flex items-center justify-between gap-4">
+            {/* Document Selector */}
+            {documents.length > 0 && (
+              <div className="flex items-center gap-2">
+                <label htmlFor="doc-select" className="text-sm font-medium text-slate-700">
+                  Active Document:
+                </label>
+                <select
+                  id="doc-select"
+                  value={documentId || ''}
+                  onChange={e => {
+                    const newDocId = e.target.value
+                    setDocumentId(newDocId || null)
+                    const doc = documents.find(d => d.document_id === newDocId)
+                    setSelectedDoc(doc || null)
+                  }}
+                  className="px-3 py-1.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 bg-white"
+                >
+                  <option value="">Select a previous document...</option>
+                  {documents.map(doc => (
+                    <option key={doc.document_id} value={doc.document_id}>
+                      {doc.filename} ({doc.num_pages} pages, {doc.num_chunks} chunks)
+                      {doc.needs_reprocessing ? ' - ⚠️ Needs reprocessing' : ''}
+                    </option>
+                  ))}
+                </select>
+                {selectedDoc && selectedDoc.needs_reprocessing && (
+                  <button
+                    onClick={handleReprocess}
+                    disabled={reprocessing}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 transition-colors disabled:opacity-50 text-sm"
+                    title="Embeddings missing - click to reprocess"
+                  >
+                    {reprocessing ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        Reprocessing...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="h-3 w-3" />
+                        Re-process
+                      </>
+                    )}
+                  </button>
+                )}
               </div>
-              <div className="flex items-center gap-1">
-                <Sparkles className="h-4 w-4" />
-                <span>Model: {stats.config.embedding_model}</span>
+            )}
+
+            {/* Stats */}
+            {stats && (
+              <div className="flex items-center gap-4 text-sm text-slate-600">
+                <div className="flex items-center gap-1">
+                  <FileText className="h-4 w-4" />
+                  <span>{stats.vector_store.total_chunks} chunks indexed</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Sparkles className="h-4 w-4" />
+                  <span>Model: {stats.config.embedding_model}</span>
+                </div>
               </div>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </header>
 
@@ -198,6 +303,21 @@ function App() {
         <div className="bg-white rounded-2xl shadow-xl border border-slate-200 flex flex-col h-[calc(100vh-250px)]">
           {/* Messages Area */}
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Warning if document needs reprocessing */}
+            {selectedDoc && selectedDoc.needs_reprocessing && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <h3 className="font-semibold text-yellow-900 mb-1">Embeddings Missing</h3>
+                  <p className="text-sm text-yellow-800">
+                    This document's embeddings are missing or incomplete (
+                    {selectedDoc.actual_chunks} of {selectedDoc.num_chunks} chunks). Click
+                    "Re-process" to regenerate them.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {messages.length === 0 && (
               <div className="text-center py-12">
                 <div className="inline-block p-4 bg-primary-50 rounded-full mb-4">
