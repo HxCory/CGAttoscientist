@@ -1,0 +1,18 @@
+# Planning and internal documentation
+LATEX_INTEGRATION_PLAN.md
+NEXT_STEPS.md
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.code-workspace
+
+# Temporary files
+*.tmp
+*.log

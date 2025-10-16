@@ -204,29 +204,36 @@ class DocumentProcessor:
         """
         import re
 
-        # Look for "Chapter 1" or "1.1" header on a page with low PDF page number
+        # Look for "Chapter 1" header on a page
         for page in pages_data:
             if page["page_num"] > 35:  # Don't search too far
                 continue
 
             text = page["text"]
+            text_lower = text.lower()
 
-            # Look for chapter 1 heading patterns
+            # Look for various Chapter 1 patterns
+            # Handle multi-line headers (e.g., "Chapter 1\nIntroduction")
             patterns = [
-                r"^\s*Chapter\s+1[:\s]",
-                r"^\s*1\s+Introduction",
-                r"^\s*1\.1\s+",
+                r"chapter\s+1",  # "Chapter 1" anywhere
+                r"^\s*1\s+introduction",  # "1 Introduction" at start of line
+                r"^\s*1\.1\s+",  # "1.1 ..." at start of line
             ]
 
+            found = False
             for pattern in patterns:
-                if re.search(pattern, text, re.MULTILINE | re.IGNORECASE):
-                    # Found Chapter 1 at this PDF page
-                    # Thesis "page 1" = this PDF page
-                    offset = page["page_num"] - 1
-                    print(
-                        f"📖 Detected page offset: thesis page 1 = PDF page {page['page_num']} (offset: +{offset})"
-                    )
-                    return offset
+                if re.search(pattern, text_lower, re.MULTILINE):
+                    found = True
+                    break
+
+            if found:
+                # Found Chapter 1 at this PDF page
+                # Thesis "page 1" = this PDF page
+                offset = page["page_num"] - 1
+                print(
+                    f"📖 Detected page offset: thesis page 1 = PDF page {page['page_num']} (offset: +{offset})"
+                )
+                return offset
 
         # Default: no offset detected
         print("📖 No page offset detected, assuming thesis pages = PDF pages")

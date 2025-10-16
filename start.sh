@@ -58,6 +58,23 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 &
 BACKEND_PID=$!
 echo "✓ Backend started (PID: $BACKEND_PID) at http://localhost:8000"
 
+# Wait for backend to be ready
+echo "⏳ Waiting for backend to initialize..."
+max_wait=30
+waited=0
+while [ $waited -lt $max_wait ]; do
+    if curl -s http://localhost:8000/ > /dev/null 2>&1; then
+        echo "✓ Backend is ready!"
+        break
+    fi
+    sleep 1
+    waited=$((waited + 1))
+done
+
+if [ $waited -eq $max_wait ]; then
+    echo "⚠️  Backend took too long to start, but continuing anyway..."
+fi
+
 cd ..
 
 # Start Frontend

@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 import anthropic
 
 from app.document_processor import DocumentProcessor
+from app.query_parser import QueryParser
 from app.vector_store import VectorStore
 
 
@@ -59,6 +60,7 @@ When you see equations or figures in the images, describe them clearly and relat
         self.client = anthropic.Anthropic(**client_kwargs)
         self.vector_store = vector_store
         self.doc_processor = document_processor
+        self.query_parser = QueryParser()
 
     def retrieve_context(
         self,
@@ -66,15 +68,17 @@ When you see equations or figures in the images, describe them clearly and relat
         top_k: int = 5,
         document_id: str | None = None,
         toc_pages: list[int] | None = None,
+        page_offset: int = 0,
     ) -> dict[str, any]:
         """
-        Retrieve relevant context for a query
+        Retrieve relevant context for a query using intelligent page-aware retrieval
 
         Args:
             query: Search query
             top_k: Number of chunks to retrieve
             document_id: Optional document ID to search within
             toc_pages: Optional list of ToC page numbers to always include
+            page_offset: Offset between thesis page numbers and PDF page numbers
 
         Returns:
             Dict with:
@@ -82,24 +86,64 @@ When you see equations or figures in the images, describe them clearly and relat
                 - pages: Unique page numbers (includes ToC + retrieved pages)
                 - page_images: Dict mapping page_num -> image_path
                 - toc_pages: List of ToC page numbers for special handling
+                - query_info: Parsed query information
         """
-        # Search for relevant chunks
-        results = self.vector_store.search(query=query, top_k=top_k, document_id=document_id)
-
-        # Collect unique pages from search results
+        # Parse query for explicit page/chapter references
+        query_info = self.query_parser.parse_query(query)
         pages = set()
         page_to_image = {}
+        results = []
 
-        for result in results:
-            page_num = result["page_num"]
-            pages.add(page_num)
+        # Strategy 1: Direct page retrieval if specific pages are mentioned
+        if query_info["has_page_reference"]:
+            print(f"📍 Query mentions specific pages: {query_info}")
 
-            # Get image path from metadata
-            doc_id = result["metadata"]["document_id"]
-            image_path = self.doc_processor.page_images_dir / doc_id / f"page_{page_num:04d}.png"
+            # Get PDF pages to retrieve
+            pdf_pages_to_fetch = set(query_info["pdf_pages"])
 
-            if image_path.exists():
-                page_to_image[page_num] = str(image_path)
+            # Convert thesis pages to PDF pages
+            if query_info["thesis_pages"] and page_offset:
+                for thesis_page in query_info["thesis_pages"]:
+                    pdf_page = thesis_page + page_offset
+                    pdf_pages_to_fetch.add(pdf_page)
+                    print(f"   Thesis page {thesis_page} → PDF page {pdf_page}")
+
+            # Handle page ranges
+            if query_info["page_range"]:
+                start, end = query_info["page_range"]
+                for page in range(start, end + 1):
+                    pdf_pages_to_fetch.add(page)
+
+            # Retrieve all mentioned pages
+            pages.update(pdf_pages_to_fetch)
+            print(f"   Retrieving pages: {sorted(pdf_pages_to_fetch)}")
+
+            # Get chunks from these specific pages for context
+            if document_id and pdf_pages_to_fetch:
+                for page_num in pdf_pages_to_fetch:
+                    # Get chunks from this page
+                    page_results = self.vector_store.search_by_page(
+                        page_num=page_num, document_id=document_id
+                    )
+                    results.extend(page_results)
+
+        # Strategy 2: Semantic search (either as fallback or if no page refs found)
+        if not query_info["has_page_reference"] or len(pages) == 0:
+            print(f"🔍 Using semantic search for: {query[:60]}...")
+            results = self.vector_store.search(query=query, top_k=top_k, document_id=document_id)
+
+            # Collect unique pages from search results
+            for result in results:
+                pages.add(result["page_num"])
+
+        # Get image paths for all pages
+        if document_id:
+            for page_num in pages:
+                image_path = (
+                    self.doc_processor.page_images_dir / document_id / f"page_{page_num:04d}.png"
+                )
+                if image_path.exists():
+                    page_to_image[page_num] = str(image_path)
 
         # Always include ToC pages if provided
         toc_pages_list = toc_pages or []
@@ -117,6 +161,7 @@ When you see equations or figures in the images, describe them clearly and relat
             "pages": sorted(pages),
             "page_images": page_to_image,
             "toc_pages": toc_pages_list,
+            "query_info": query_info,
         }
 
     def _prepare_image_content(self, image_path: str) -> dict[str, any]:
@@ -244,7 +289,11 @@ When you see equations or figures in the images, describe them clearly and relat
         # Retrieve relevant context
         print(f"Retrieving context for: {question}")
         context = self.retrieve_context(
-            query=question, top_k=top_k, document_id=document_id, toc_pages=toc_pages
+            query=question,
+            top_k=top_k,
+            document_id=document_id,
+            toc_pages=toc_pages,
+            page_offset=page_offset,
         )
 
         print(f"Found {len(context['pages'])} relevant pages: {context['pages']}")
@@ -295,7 +344,11 @@ When you see equations or figures in the images, describe them clearly and relat
         # Retrieve relevant context
         print(f"Retrieving context for: {question}")
         context = self.retrieve_context(
-            query=question, top_k=top_k, document_id=document_id, toc_pages=toc_pages
+            query=question,
+            top_k=top_k,
+            document_id=document_id,
+            toc_pages=toc_pages,
+            page_offset=page_offset,
         )
 
         print(f"Found {len(context['pages'])} relevant pages: {context['pages']}")

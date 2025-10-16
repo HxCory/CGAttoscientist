@@ -144,6 +144,41 @@ class VectorStore:
 
         return formatted_results
 
+    def search_by_page(self, page_num: int, document_id: str | None = None) -> list[dict[str, any]]:
+        """
+        Retrieve all chunks from a specific page
+
+        Args:
+            page_num: Page number to retrieve
+            document_id: Optional filter by document
+
+        Returns:
+            List of dicts with {text, page_num, metadata}
+        """
+        # Build filter with proper ChromaDB operator syntax
+        if document_id:
+            where_filter = {"$and": [{"page_num": page_num}, {"document_id": document_id}]}
+        else:
+            where_filter = {"page_num": page_num}
+
+        # Get all chunks from this page
+        results = self.collection.get(where=where_filter, include=["documents", "metadatas"])
+
+        # Format results
+        formatted_results = []
+        if results["ids"]:
+            for i in range(len(results["ids"])):
+                formatted_results.append(
+                    {
+                        "id": results["ids"][i],
+                        "text": results["documents"][i],
+                        "page_num": results["metadatas"][i]["page_num"],
+                        "metadata": results["metadatas"][i],
+                    }
+                )
+
+        return formatted_results
+
     def clear_document(self, document_id: str):
         """Remove all chunks for a specific document"""
         # Get all IDs for this document
